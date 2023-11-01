@@ -40,6 +40,9 @@ public class RequestHandler {
             String pathWithoutQuery = url.getPath();
             Map<String, String> queryParams = getQueryParams(url);
 
+
+            requestPath = pathWithoutQuery;
+
             if (!isValidPath(pathWithoutQuery)) {
                 sendErrorResponse(out, 404, "Not Found");
                 return;
