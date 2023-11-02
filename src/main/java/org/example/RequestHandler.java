@@ -23,6 +23,7 @@ public class RequestHandler {
     }
 
     public void handleConnection(BufferedReader in, BufferedOutputStream out) {
+
         try {
             String requestLine = in.readLine();
 
@@ -36,31 +37,94 @@ public class RequestHandler {
             }
 
             String requestPath = parts[1];
-            URL url = new URL(requestPath);
-            String pathWithoutQuery = url.getPath();
+
+            URI uri = new URI(requestPath);
+            URL url;
+            if (!uri.isAbsolute()) {
+                uri = new URI("http://" + requestPath);
+            }
+            url = uri.toURL();
+
+            String pathWithoutQuery;
+            if (uri.getQuery() != null) {
+                String[] queryParts = uri.getPath().split("\\?");
+                if (queryParts.length > 0) {
+                    pathWithoutQuery = queryParts[0];
+                } else {
+                    pathWithoutQuery = uri.getPath();
+                }
+            } else {
+                pathWithoutQuery = uri.getPath();
+            }
+
             Map<String, String> queryParams = getQueryParams(url);
-
-
-            requestPath = pathWithoutQuery;
 
             if (!isValidPath(pathWithoutQuery)) {
                 sendErrorResponse(out, 404, "Not Found");
                 return;
             }
 
-            Path filePath = Path.of(".", "public", pathWithoutQuery);
-            String mimeType = Files.probeContentType(filePath);
+            // Чтение тела запроса
+            StringBuilder requestBody = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null && !line.isEmpty()) {
+                requestBody.append(line);
+            }
 
             if (pathWithoutQuery.equals("/classic.html")) {
-                handleSpecialCase(out, filePath, mimeType, queryParams);
+                handleSpecialCase(out, requestBody.toString(), queryParams);
             } else {
-                handleRegularCase(out, filePath, mimeType);
+                handleRegularCase(out, pathWithoutQuery);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    private void handleSpecialCase(BufferedOutputStream out, String requestBody, Map<String, String> queryParams) throws IOException {
+        // Обработка тела запроса
+        // Парсинг тела запроса в JSON объект
+        JSONObject jsonBody = new JSONObject(requestBody);
+
+        // Получение значения конкретного параметра запроса
+        String name = jsonBody.getString("name");
+
+        // Пример обработки в зависимости от значения параметра запроса
+        String response;
+        if (name.equals("John")) {
+            response = "Hello, John!";
+        } else {
+            response = "Hello, " + name + "!";
+        }
+
+        // Отправка ответа
+        String httpResponse = "HTTP/1.1 200 OK\r\n" +
+                "Content-Length: " + response.getBytes().length + "\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "Connection: close\r\n\r\n" +
+                response;
+        out.write(httpResponse.getBytes());
+        out.flush();
+    }
+
+    private void handleRegularCase(BufferedOutputStream out, String requestPath) throws IOException {
+        // Обработка запроса без тела
+        String response;
+        if (requestPath.equals("/index.html")) {
+            response = "<html><body><h1>Welcome to the homepage!</h1></body></html>";
+        } else {
+            response = "Page not found";
+        }
+
+        // Отправка ответа
+        String httpResponse = "HTTP/1.1 200 OK\r\n" +
+                "Content-Length: " + response.getBytes().length + "\r\n" +
+                "Content-Type: text/html\r\n" +
+                "Connection: close\r\n\r\n" +
+                response;
+        out.write(httpResponse.getBytes());
+        out.flush();
+    }
     private boolean isValidPath(String path) {
         return VALID_PATHS.contains(path);
     }
@@ -71,63 +135,6 @@ public class RequestHandler {
                 "Connection: close\r\n" +
                 "\r\n";
         out.write(response.getBytes());
-        out.flush();
-    }
-
-    private void handleSpecialCase(BufferedOutputStream out, Path filePath, String mimeType, Map<String, String> queryParams) throws IOException {
-        String template = Files.readString(filePath);
-        String content = template.replace(
-                "{time}",
-                LocalDateTime.now().toString()
-        );
-
-        String lastParam = queryParams.get("last");
-        if (lastParam != null) {
-            int last = Integer.parseInt(lastParam);
-            // Дополнительная логика обработки параметра "last"
-
-
-            // Пример использования HttpClient для выполнения HTTP-запроса
-            HttpClient httpClient = HttpClient.newHttpClient();
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("http://example.com/api?last=" + last))
-                    .build();
-            //getQueryParams Дополнительная настройка запроса, если нужно
-
-
-            try {
-                // Получение ответа от сервера и его обработка
-                HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-                String apiResponse = response.body();
-
-
-
-                // Обновление контента с учетом полученных данных
-                content = content.replace("{apiResponse}", apiResponse);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-
-        byte[] contentBytes = content.getBytes();
-        String response = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: " + mimeType + "\r\n" +
-                "Content-Length: " + contentBytes.length + "\r\n" +
-                "Connection: close\r\n" +
-                "\r\n";
-        out.write(response.getBytes());
-        out.write(contentBytes);
-        out.flush();
-    }
-    private void handleRegularCase(BufferedOutputStream out, Path filePath, String mimeType) throws IOException {
-        long length = Files.size(filePath);
-        String response = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: " + mimeType + "\r\n" +
-                "Content-Length: " + length + "\r\n" +
-                "Connection: close\r\n" +
-                "\r\n";
-        out.write(response.getBytes());
-        Files.copy(filePath, out);
         out.flush();
     }
 
